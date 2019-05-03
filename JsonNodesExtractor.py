@@ -5,6 +5,55 @@ import os
 import json
 import argparse
 import re
+import string
+
+class StringBuilder:
+  def __init__(self, type):
+    self.type = type
+
+  def build(self, string):
+    return string
+
+class SortedStringBuilder(StringBuilder):
+  def build(self, string):
+    return ''.join(sorted(string))
+
+  @classmethod
+  def fromJson(cls, data):
+    return cls(**data)
+
+class RemovePatternStringBuilder(StringBuilder):
+  def __init__(self, type, patternString):
+    StringBuilder.__init__(self, type)
+    self.patternString = patternString
+    print "Pattern string", patternString
+
+  def build(self, string):
+    p = re.compile(self.patternString, flags=re.UNICODE)
+    result = p.sub('', string)
+    return result
+
+  @classmethod
+  def fromJson(cls, data):
+    return cls(**data)
+
+class CompositeStringBuilder(StringBuilder):
+  def __init__(self, type, stringBuilders):
+    StringBuilder.__init__(self, type)
+    self.stringBuilders = stringBuilders
+
+  def build(self, string):
+    resultString = string
+    for builder in self.stringBuilders:
+      resultString = builder.build(resultString)
+    return resultString
+  @classmethod
+  def fromJson(cls, data):
+    stringBuilders = list()
+    for stringBuilderData in data["stringBuilders"]:
+      stringBuilderType = eval(stringBuilderData["type"] + "StringBuilder")
+      stringBuilders.append(stringBuilderType.fromJson(stringBuilderData))
+    return cls("Composite", stringBuilders)
 
 class UniqueCharacterContainer:
    def __init__(self):
@@ -16,8 +65,8 @@ class UniqueCharacterContainer:
    def getCharacters(self):
       return self.characters
 
-   def getSortedCharactersString(self):
-      return ''.join(sorted(self.characters))
+   def getCharactersString(self, stringBuilder):
+      return stringBuilder.build(''.join(self.characters))
 
 class InputFile:
   def __init__(self, filepath, rules):
@@ -29,8 +78,9 @@ class InputConfig:
     self.inputFiles = inputFiles
 
 class OutputConfig:
-  def __init__(self, outputFile):
+  def __init__(self, outputFile, stringBuilder):
     self.outputFile = outputFile
+    self.stringBuilder = stringBuilder
 
 class ParseConfig:
   def __init__(self, inputConfig, outputConfig):
@@ -101,8 +151,13 @@ def getParseConfigFromFile(configFile):
       fileList.append(InputFile(fileData["file"], rules))
 
     inputConfig = InputConfig(fileList)
-    outputFile = jsonData["output"]["file"]
-    outputConfig = OutputConfig(outputFile)
+    outputData = jsonData["output"]
+    outputFile = outputData["file"]
+    outputRules = outputData["rules"]
+    builderData = outputRules["builder"]
+    builderType = eval(builderData["type"] + "StringBuilder")
+    stringBuilder = builderType.fromJson(builderData)
+    outputConfig = OutputConfig(outputFile, stringBuilder)
     return ParseConfig(inputConfig, outputConfig)
 
 def writeTextToOutputFile(text, outputfile, encode):
@@ -123,7 +178,7 @@ def extractCharactersWithConfigFile(configFile):
       print "file and rules:", inputFile.filepath, inputFile.rules
       text = getTextFromLocFile(inputFile.filepath, inputFile.rules, params)
       uniqueCharacterContainer.addCharactersFromText(text)
-  outputString = uniqueCharacterContainer.getSortedCharactersString()
+  outputString = uniqueCharacterContainer.getCharactersString(parseConfig.outputConfig.stringBuilder)
   print outputString
   writeTextToOutputFile(outputString, parseConfig.outputConfig.outputFile, "UTF-16")
   print "Characters extraction finished!"
@@ -156,7 +211,7 @@ def extractCharactersWithParams(inputfile, outputfile, langs, customRules):
   uniqueCharacterContainer = UniqueCharacterContainer()
   text = getTextFromLocFile(inputfile, rules, params)
   uniqueCharacterContainer.addCharactersFromText(text)
-  outputString = uniqueCharacterContainer.getSortedCharactersString()
+  outputString = uniqueCharacterContainer.getCharactersString(StringBuilder(""))
   print outputString
   writeTextToOutputFile(outputString, outputfile, "UTF-16")
   print "Characters extraction finished!"
